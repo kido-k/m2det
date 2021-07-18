@@ -1,0 +1,22 @@
+# General
+.DS_Store
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# pyenv
+.python-version
+
+# Environments
+.env
+
+# credential
+firebase-adminsdk.json
+gcp-credential.json
+
+# weights
+weights
+
+data/coco/annotations
