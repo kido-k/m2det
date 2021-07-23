@@ -68,4 +68,12 @@ def predict_data():
     return "OK"
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    if mode == 'local':
+        app.run(host='0.0.0.0', port=5000, debug=True)
+    else:
+        import ssl
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+        ssl_context.load_cert_chain(
+            'fullchain.pem', 'privkey.pem'
+        )
+        app.run(host='0.0.0.0', ssl_context=ssl_context, port=5000)
