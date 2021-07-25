@@ -49,19 +49,33 @@ def draw_detection(im, bboxes, scores, cls_inds, fps, colors, labels, thr=0.2):
             cv2.putText(imgcv, '%.2f' % fps + ' fps', (w - 160, h - 15), 0, 2e-3 * h, (255, 255, 255), thick // 2)
     return imgcv
 
-def download_image(gcp, user_id, timestamp):
+def download_image(gcp, user_id, device_id, timestamp):
     storage_client = gcp['client']
     bucket = storage_client.bucket(os.getenv('FIREBASE_BUCKET'))
-    bucket_file = 'images/' + user_id + '/' + timestamp + '.jpeg'
+    bucket_file = 'images/' + user_id + '/' + device_id + '/' + timestamp + '.jpeg'
     blob = bucket.blob(bucket_file)
     if not os.path.exists('/src/download/'):
         os.makedirs('/src/download/')
     if not os.path.exists('/src/download/' + user_id):
         os.makedirs('/src/download/' + user_id)
-    local_file = '/src/download/' + user_id + '/' + timestamp + '.jpeg'
+    if not os.path.exists('/src/download/' + user_id + '/' + device_id):
+        os.makedirs('/src/download/' + user_id + '/' + device_id)
+    local_file = '/src/download/' + user_id + '/' + device_id  + '/' + timestamp + '.jpeg'
     blob.download_to_filename(local_file)
 
-def main(gcp, user_id, timestamp):
+def download_movie(gcp, user_id, device_id):
+    storage_client = gcp['client']
+    bucket = storage_client.bucket(os.getenv('FIREBASE_BUCKET'))
+    bucket_file = 'movie/' + user_id + '/' + device_id + '.mp4'
+    blob = bucket.blob(bucket_file)
+    if not os.path.exists('/src/download/'):
+        os.makedirs('/src/download/')
+    if not os.path.exists('/src/download/' + user_id):
+        os.makedirs('/src/download/' + user_id)
+    local_file = '/src/download/' + user_id + '/' + device_id  + '.mp4'
+    blob.download_to_filename(local_file)
+
+def main(gcp, file_type, user_id, device_id, timestamp):
     global cfg
     cfg = Config.fromfile(args['config'])
     anchor_config = anchors(cfg)
@@ -90,12 +104,28 @@ def main(gcp, user_id, timestamp):
     cats = [_.strip().split(',')[-1] for _ in open('data/coco_labels.txt','r').readlines()]
     labels = tuple(['__background__'] + cats)
 
-    download_image(gcp, user_id, timestamp)
-    im_path = '/src/download/' + user_id
+    if file_type == 'video':
+        download_movie(gcp, user_id, device_id)
+        while True:
+            video_path = '/src/download/' + user_id + '/' + device_id  + '.mp4'
+            capture = cv2.VideoCapture(video_path)
+            if capture.isOpened():
+                break
+            else:
+                print('No file!')
+        video_name = os.path.splitext(video_path)
+        fourcc = cv2.VideoWriter_fourcc('m','p','4','v')
+        out_video = cv2.VideoWriter('/src/download/' + user_id + '/' + device_id + '_m2det.mp4', fourcc, capture.get(cv2.CAP_PROP_FPS), (int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))))
+        im_path = '/src/download/' + user_id
+
+    else:
+        download_image(gcp, user_id, device_id, timestamp)
+        im_path = '/src/download/' + user_id + '/' + device_id
 
     im_fnames = sorted((fname for fname in os.listdir(im_path) if os.path.splitext(fname)[-1] == '.jpeg'))
     im_fnames = (os.path.join(im_path, fname) for fname in im_fnames)
     im_iter = iter(im_fnames)
+
     while True:
         try:
             fname = next(im_iter)
@@ -146,7 +176,7 @@ def main(gcp, user_id, timestamp):
         result = collections.Counter(result)
         
         # firebaseに検出結果を表示
-        results_ref = db.reference('/results/' + user_id)
+        results_ref = db.reference('/results/' + user_id + '/' + device_id)
         results_ref.child(timestamp).update(dict(result))
 
         fps = -1
@@ -156,17 +186,30 @@ def main(gcp, user_id, timestamp):
             im2show = cv2.resize(im2show,
                                 (int(1000. * float(im2show.shape[1]) / im2show.shape[0]), 1000))
 
-        cv2.imwrite('{}_m2det.jpeg'.format(fname.split('.')[0]), im2show)
-        
-        # gcsにアップロード
-        storage_file_path = 'result/images/' + user_id + '/' + timestamp +'.jpeg'
-        blob_gcs = gcp['bucket'].blob(storage_file_path)
-        result_image_file = '{}_m2det.jpeg'.format(fname.split('.')[0])
-        blob_gcs.upload_from_filename(result_image_file)
+        if file_type == 'video':
+            out_video.write(im2show)
 
-        if os.path.exists('/src/download/' + user_id):
-            shutil.rmtree('/src/download/' + user_id)
-            os.mkdir('/src/download/' + user_id)
+            # gcsにアップロード
+            storage_file_path = 'result/movie/' + user_id + '/' + device_id + '.mp4'
+            blob_gcs = gcp['bucket'].blob(storage_file_path)
+            result_image_file = '/src/download/' + user_id + '/' + device_id + '_m2det.mp4'
+            blob_gcs.upload_from_filename(result_image_file)
+
+            if os.path.exists('/src/download/' + user_id):
+                shutil.rmtree('/src/download/' + user_id)
+                os.mkdir('/src/download/' + user_id)
+        else:
+            cv2.imwrite('{}_m2det.jpeg'.format(fname.split('.')[0]), im2show)
+            
+            # gcsにアップロード
+            storage_file_path = 'result/images/' + user_id + '/' + device_id + '/' + timestamp +'.jpeg'
+            blob_gcs = gcp['bucket'].blob(storage_file_path)
+            result_image_file = '{}_m2det.jpeg'.format(fname.split('.')[0])
+            blob_gcs.upload_from_filename(result_image_file)
+
+            if os.path.exists('/src/download/' + user_id):
+                shutil.rmtree('/src/download/' + user_id)
+                os.mkdir('/src/download/' + user_id)
 
 if __name__ == "__main__":
     main()

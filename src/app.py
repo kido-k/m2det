@@ -62,9 +62,11 @@ def download():
 @app.route('/predict', methods=['POST'])
 def predict_data():
     post_data = request.json
+    file_type = post_data['fileType']
     user_id = post_data['userId']
+    device_id = post_data['deviceId']
     timestamp = post_data['timestamp']
-    predict.main(gcp, user_id, timestamp)
+    predict.main(gcp, file_type, user_id, device_id, timestamp)
     return "OK"
 
 if __name__ == '__main__':

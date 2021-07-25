@@ -19,4 +19,6 @@ gcp-credential.json
 # weights
 weights
 
+# 
 data/coco/annotations
+download
