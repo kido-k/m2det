@@ -104,11 +104,18 @@ def main(gcp, file_type, user_id, device_id, timestamp):
     cats = [_.strip().split(',')[-1] for _ in open('data/coco_labels.txt','r').readlines()]
     labels = tuple(['__background__'] + cats)
 
+    video_capture = None
+
     if file_type == 'video':
         download_movie(gcp, user_id, device_id)
         while True:
             video_path = '/src/download/' + user_id + '/' + device_id  + '.mp4'
             capture = cv2.VideoCapture(video_path)
+            video_capture = {
+                'fps': round(capture.get(cv2.CAP_PROP_FPS)),
+                'total_frame': round(capture.get(cv2.CAP_PROP_FRAME_COUNT)),
+                'play_time': round(capture.get(cv2.CAP_PROP_FRAME_COUNT) / capture.get(cv2.CAP_PROP_FPS))
+            }
             if capture.isOpened():
                 break
             else:
@@ -126,13 +133,22 @@ def main(gcp, file_type, user_id, device_id, timestamp):
     im_fnames = (os.path.join(im_path, fname) for fname in im_fnames)
     im_iter = iter(im_fnames)
 
+    idx = 0
     while True:
-        try:
-            fname = next(im_iter)
-        except StopIteration:
-            break
-        if 'm2det' in fname: continue # ignore the detected images
-        image = cv2.imread(fname, cv2.IMREAD_COLOR)
+        idx += 1
+        if file_type == 'video':
+            ret, image = capture.read()
+            if not ret:
+                cv2.destroyAllWindows()
+                capture.release()
+                break
+        else:
+            try:
+                fname = next(im_iter)
+            except StopIteration:
+                break
+            image = cv2.imread(fname, cv2.IMREAD_COLOR)
+            if 'm2det' in fname: continue # ignore the detected images
 
         loop_start = time.time()
         w,h = image.shape[1],image.shape[0]
@@ -176,8 +192,14 @@ def main(gcp, file_type, user_id, device_id, timestamp):
         result = collections.Counter(result)
         
         # firebaseに検出結果を表示
-        results_ref = db.reference('/results/' + user_id + '/' + device_id)
-        results_ref.child(timestamp).update(dict(result))
+        if file_type == 'video':
+            if idx % video_capture['fps'] == 1:
+                results_ref = db.reference('/results/' + user_id + '/' + device_id)
+                second = str(idx // video_capture['fps'] + 1)
+                results_ref.child(second).update(dict(result))
+        else: 
+            results_ref = db.reference('/results/' + user_id + '/' + device_id)
+            results_ref.child(timestamp).update(dict(result))
 
         fps = -1
         im2show = draw_detection(image, boxes, scores, cls_inds, fps, colors, labels)
@@ -189,15 +211,6 @@ def main(gcp, file_type, user_id, device_id, timestamp):
         if file_type == 'video':
             out_video.write(im2show)
 
-            # gcsにアップロード
-            storage_file_path = 'result/movie/' + user_id + '/' + device_id + '.mp4'
-            blob_gcs = gcp['bucket'].blob(storage_file_path)
-            result_image_file = '/src/download/' + user_id + '/' + device_id + '_m2det.mp4'
-            blob_gcs.upload_from_filename(result_image_file)
-
-            if os.path.exists('/src/download/' + user_id):
-                shutil.rmtree('/src/download/' + user_id)
-                os.mkdir('/src/download/' + user_id)
         else:
             cv2.imwrite('{}_m2det.jpeg'.format(fname.split('.')[0]), im2show)
             
@@ -210,6 +223,20 @@ def main(gcp, file_type, user_id, device_id, timestamp):
             if os.path.exists('/src/download/' + user_id):
                 shutil.rmtree('/src/download/' + user_id)
                 os.mkdir('/src/download/' + user_id)
+
+    if file_type == 'video':    
+        # gcsにアップロード
+        storage_file_path = 'result/movie/' + user_id + '/' + device_id + '_m2det.mp4'
+        blob_gcs = gcp['bucket'].blob(storage_file_path)
+        result_image_file = '/src/download/' + user_id + '/' + device_id + '_m2det.mp4'
+        blob_gcs.upload_from_filename(result_image_file)
+
+        # if os.path.exists('/src/download/' + user_id):
+        #     shutil.rmtree('/src/download/' + user_id)
+        #     os.mkdir('/src/download/' + user_id)
+        
+        out_video.release()
+        capture.release()
 
 if __name__ == "__main__":
     main()

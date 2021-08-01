@@ -85,6 +85,7 @@ def draw_detection(im, bboxes, scores, cls_inds, fps, thr=0.2):
 im_path = args.directory
 cam = args.cam
 video = args.video
+video_capture = None
 if cam >= 0:
     capture = cv2.VideoCapture(cam)
     video_path = './cam'
@@ -92,6 +93,11 @@ if video:
     while True:
         video_path = input('Please enter video path: ')
         capture = cv2.VideoCapture(video_path)
+        video_capture = {
+            'fps': round(capture.get(cv2.CAP_PROP_FPS)),
+            'total_frame': round(capture.get(cv2.CAP_PROP_FRAME_COUNT)),
+            'play_time': round(capture.get(cv2.CAP_PROP_FRAME_COUNT) / capture.get(cv2.CAP_PROP_FPS))
+        }
         if capture.isOpened():
             break
         else:
@@ -103,7 +109,10 @@ if cam >= 0 or video:
 im_fnames = sorted((fname for fname in os.listdir(im_path) if os.path.splitext(fname)[-1] == '.jpg'))
 im_fnames = (os.path.join(im_path, fname) for fname in im_fnames)
 im_iter = iter(im_fnames)
+
+idx = 0
 while True:
+    idx += 1
     if cam < 0 and not video:
         try:
             fname = next(im_iter)
